@@ -563,7 +563,7 @@ DJISDKNode::initDataSubscribeFromFC(ros::NodeHandle& nh)
 
     if(vehicle->getFwVersion() > versionBase33)
     {
-      topicList5hz.push_back(Telemetry::TOPIC_RTK_CONNECT_STATUS);
+//      topicList5hz.push_back(Telemetry::TOPIC_RTK_CONNECT_STATUS);
 
       // Advertise rtk connection only when rtk is supported
       rtk_connection_status_publisher =
