@@ -250,8 +250,45 @@ DJISDKNode::missionWpGetInfoCallback(
   }
   else
   {
-    ROS_ERROR("no waypoint mission initiated ");
-    return false;
+    ACK::WayPointInit wayPointInit;
+
+    // creating empty waypoint mission
+    WaypointMission *newMission = new WaypointMission(vehicle);
+
+    // we use empty new mission to request waypointInitSettings located in drone.
+    wayPointInit = newMission->getWaypointSettings(WAIT_TIMEOUT);
+
+    // analyze reply
+    if (ACK::getError(wayPointInit.ack))
+    {
+      ACK::getErrorCodeMessage(wayPointInit.ack, __func__);
+      delete newMission;
+      ROS_ERROR("missionWpGetInfo service - no waypoint mission initiated");
+      return false;
+    }
+    else
+    {
+
+      // now we can init mission in OSDK thanks to the wpInitData we got
+      // reminder:
+      // typedef struct WayPointInit
+      // {
+      //   ErrorCode            ack;
+      //   WayPointInitSettings data;
+      // } WayPointInit; // pack(1)
+
+      vehicle->missionManager->init(DJI::OSDK::WAYPOINT, WAIT_TIMEOUT, &wayPointInit.data);
+
+      info = wayPointInit.data;
+
+      // now, we will be able to do:
+      // info = vehicle->missionManager->wpMission->getWaypointSettings(10).data
+      // even if no waypoint were set from ROS
+
+      // don't need new mission anymore (can't put it outside this condition. Indeed, "return false" above
+      // would make program exit without deleting pointer.)
+      delete newMission;
+    }
   }
 
   response.waypoint_task.mission_waypoint.resize(info.indexNumber);
@@ -266,27 +303,34 @@ DJISDKNode::missionWpGetInfoCallback(
 
   for (int i=0; i< info.indexNumber; i++)
   {
-    DJI::OSDK::WayPointSettings wpData; 
-    wpData = vehicle->missionManager->wpMission->getIndex(i, 10).data;
-    response.waypoint_task.mission_waypoint[i].latitude            = wpData.latitude  * 180.0 / C_PI;
-    response.waypoint_task.mission_waypoint[i].longitude           = wpData.longitude * 180.0 / C_PI;
-    response.waypoint_task.mission_waypoint[i].altitude            = wpData.altitude;
-    response.waypoint_task.mission_waypoint[i].damping_distance    = wpData.damping;
-    response.waypoint_task.mission_waypoint[i].target_yaw          = wpData.yaw;
-    response.waypoint_task.mission_waypoint[i].target_gimbal_pitch = wpData.gimbalPitch;
-    response.waypoint_task.mission_waypoint[i].turn_mode           = wpData.turnMode;
-    response.waypoint_task.mission_waypoint[i].has_action          = wpData.hasAction;
-    response.waypoint_task.mission_waypoint[i].action_time_limit   = wpData.actionTimeLimit;
-    response.waypoint_task.mission_waypoint[i].waypoint_action.action_repeat = wpData.actionNumber + (wpData.actionRepeat << 4);
+    ACK::WayPointIndex wpi = vehicle->missionManager->wpMission->getIndex(i, 10);
+    if (ACK::getError(wpi.ack))
+    {
+      ACK::getErrorCodeMessage(wpi.ack, __func__);
+      ROS_ERROR("missionWpGetInfo service - get waypoint index failed ACK shows errors");
+      return false; // must succeed on all wp index calls
+    }
+    else
+    {
+      response.waypoint_task.mission_waypoint[i].latitude            = wpi.data.latitude  * 180.0 / C_PI;
+      response.waypoint_task.mission_waypoint[i].longitude           = wpi.data.longitude * 180.0 / C_PI;
+      response.waypoint_task.mission_waypoint[i].altitude            = wpi.data.altitude;
+      response.waypoint_task.mission_waypoint[i].damping_distance    = wpi.data.damping;
+      response.waypoint_task.mission_waypoint[i].target_yaw          = wpi.data.yaw;
+      response.waypoint_task.mission_waypoint[i].target_gimbal_pitch = wpi.data.gimbalPitch;
+      response.waypoint_task.mission_waypoint[i].turn_mode           = wpi.data.turnMode;
+      response.waypoint_task.mission_waypoint[i].has_action          = wpi.data.hasAction;
+      response.waypoint_task.mission_waypoint[i].action_time_limit   = wpi.data.actionTimeLimit;
+      response.waypoint_task.mission_waypoint[i].waypoint_action.action_repeat = wpi.data.actionNumber + (wpi.data.actionRepeat << 4);
 
-    std::copy(std::begin(wpData.commandList),
-              std::end(wpData.commandList), 
-              response.waypoint_task.mission_waypoint[i].waypoint_action.command_list.begin());
+      std::copy(std::begin(wpi.data.commandList),
+                std::end(wpi.data.commandList), 
+                response.waypoint_task.mission_waypoint[i].waypoint_action.command_list.begin());
 
-    std::copy(std::begin(wpData.commandParameter),
-              std::end(wpData.commandParameter), 
-              response.waypoint_task.mission_waypoint[i].waypoint_action.command_parameter.begin());
-
+      std::copy(std::begin(wpi.data.commandParameter),
+                std::end(wpi.data.commandParameter), 
+                response.waypoint_task.mission_waypoint[i].waypoint_action.command_parameter.begin());
+    }
   }
   return true;
 }
@@ -517,3 +561,4 @@ DJISDKNode::missionHpUpdateRadiusCallback(
 
   return true;
 }
+
